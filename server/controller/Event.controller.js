@@ -1,5 +1,8 @@
 const Event = require('../models/Event.model');
 const { uploadUserCoverImage, uploadToCloudinary } = require('../middleware/multerConfig');
+const moment = require('moment-timezone');
+
+const KUWAIT_TIMEZONE = 'Asia/Kuwait';
 
 exports.createEvent = async (req, res) => {
   uploadUserCoverImage(req, res, async (err) => {
@@ -15,10 +18,13 @@ exports.createEvent = async (req, res) => {
         imageUrl = uploadResult.secure_url;
       }
 
+      // Convert local Kuwait time to UTC before saving
+      const utcDate = moment.tz(req.body.date, KUWAIT_TIMEZONE).utc().toDate();
+
       const newEvent = new Event({
         title: req.body.title,
         description: req.body.description,
-        date: req.body.date,
+        date: utcDate, // Save as UTC
         location: req.body.location,
         price: req.body.price,
         capacity: req.body.capacity,
@@ -52,7 +58,6 @@ exports.getCountEvents = async (req, res) => {
   }
 };
 
-
 exports.getAllEvents = async (req, res) => {
   try {
     const page = parseInt(req.params.page) || 1;
@@ -68,10 +73,19 @@ exports.getAllEvents = async (req, res) => {
       query.availableTickets = 0;
     }
 
-    const events = await Event.find(query)
+    let events = await Event.find(query)
       .sort({ createdAt: -1 })
       .limit(limit)
       .skip(skip);
+
+    // Convert UTC dates back to Kuwait timezone
+    events = events.map(event => {
+      const eventObj = event.toObject();
+      eventObj.date = moment.utc(event.date)
+        .tz(KUWAIT_TIMEZONE)
+        .format();
+      return eventObj;
+    });
 
     res.status(200).json(events);
   } catch (error) {
@@ -81,22 +95,27 @@ exports.getAllEvents = async (req, res) => {
 
 exports.getClosestEvent = async (req, res) => {
   try {
-    const now = new Date();
+    const nowInKuwait = moment.tz(KUWAIT_TIMEZONE);
+    const nowUTC = nowInKuwait.utc().toDate();
 
-    const closestEvent = await Event.findOne({ date: { $gt: now } })
+    const closestEvent = await Event.findOne({ date: { $gt: nowUTC } })
       .sort({ date: 1 });
 
     if (!closestEvent) {
       return res.status(200).json({ message: 'There are no future events.' });
     }
 
-    res.status(200).json(closestEvent);
+    // Convert UTC date back to Kuwait timezone
+    const eventObj = closestEvent.toObject();
+    eventObj.date = moment.utc(closestEvent.date)
+      .tz(KUWAIT_TIMEZONE)
+      .format();
+
+    res.status(200).json(eventObj);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
-
-
 
 exports.getEventById = async (req, res) => {
   try {
@@ -140,10 +159,13 @@ exports.updateEventById = async (req, res) => {
         imageUrl = uploadResult.secure_url;
       }
 
+      // Convert local Kuwait time to UTC before saving
+      const utcDate = moment.tz(req.body.date, KUWAIT_TIMEZONE).utc().toDate();
+
       const updateData = {
         title: req.body.title,
         description: req.body.description,
-        date: req.body.date,
+        date: utcDate, // Save as UTC
         location: req.body.location,
         price: req.body.price,
         capacity: req.body.capacity,
@@ -164,9 +186,15 @@ exports.updateEventById = async (req, res) => {
         return res.status(404).json({ message: 'Event not found' });
       }
 
+      // Convert UTC date back to Kuwait timezone
+      const eventObj = updatedEvent.toObject();
+      eventObj.date = moment.utc(updatedEvent.date)
+        .tz(KUWAIT_TIMEZONE)
+        .format();
+
       res.status(200).json({
         message: `Event ${updatedEvent.title} updated successfully`,
-        updatedEvent,
+        updatedEvent: eventObj,
       });
     } catch (error) {
       res.status(500).json({ message: error.message });

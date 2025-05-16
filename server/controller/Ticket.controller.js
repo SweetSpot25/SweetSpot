@@ -8,6 +8,8 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const cloudinary = require('../config/cloudinary');
 const streamifier = require('streamifier');
+const moment = require('moment-timezone');
+const KUWAIT_TIMEZONE = 'Asia/Kuwait';
 
 const generateQRCode = async (text, qrEventId) => {
   const qrCodeText = `Text: ${text}\nEvent ID: ${qrEventId}`;
@@ -72,7 +74,8 @@ exports.createTicket = async (req, res) => {
       status: 'unused',
       paid: false,
       maxUses: numberOfTickets,
-      usedCount: 0
+      usedCount: 0,
+      createdAt: moment.tz(KUWAIT_TIMEZONE).toDate() // Set creation time in Kuwait timezone
     });
 
     await ticket.save();
@@ -80,7 +83,7 @@ exports.createTicket = async (req, res) => {
       ...ticket.toObject(),
       event: {
         title: event.title,
-        date: event.date,
+        date: moment.utc(event.date).tz(KUWAIT_TIMEZONE).format(), // Convert to Kuwait time
         location: event.location,
       },
     };
@@ -128,7 +131,7 @@ const sendEmail = async (email, subject, ticket) => {
     <h2 style="margin-top: 0; font-size: 24px; border-bottom: 1px solid #ffffff44; padding-bottom: 8px;">
       🏟️ ${ticket.event.title}
     </h2>
-    <p style="margin: 10px 0;"><strong>📅 Date:</strong> ${new Date(ticket.event.date).toLocaleDateString()} at ${new Date(ticket.event.date).toLocaleTimeString()}</p>
+    <p style="margin: 10px 0;"><strong>📅 Date:</strong> ${moment(ticket.event.date).tz(KUWAIT_TIMEZONE).format('YYYY-MM-DD HH:mm:ss')}</p>
     <p style="margin: 10px 0;"><strong>📍 Location:</strong> ${ticket.event.location}</p>
     <div style="
       margin-top: 20px;
@@ -183,7 +186,7 @@ const sendEmail = async (email, subject, ticket) => {
     html: htmlTemplate,
     attachments,
   };
-console.log(ticket)
+  console.log(ticket)
   try {
     await transporter.sendMail(mailOptions);
   } catch (err) {
@@ -303,11 +306,22 @@ exports.getTicketsByUserId = async (req, res) => {
 
     const skip = (page - 1) * pageSize;
 
-    const tickets = await Ticket.find(query)
+    let tickets = await Ticket.find(query)
       .populate('user', 'name email')
       .populate('event', 'title date location')
       .skip(skip)
       .limit(pageSize);
+
+    // Convert dates to Kuwait timezone
+    tickets = tickets.map(ticket => {
+      const ticketObj = ticket.toObject();
+      if (ticketObj.event && ticketObj.event.date) {
+        ticketObj.event.date = moment.utc(ticketObj.event.date)
+          .tz(KUWAIT_TIMEZONE)
+          .format();
+      }
+      return ticketObj;
+    });
 
     res.status(200).json(tickets);
   } catch (error) {
@@ -370,12 +384,28 @@ exports.getAllTicketsWithFilter = async (req, res) => {
 
     const total = await Ticket.countDocuments(query);
 
-    const tickets = await Ticket.find(query)
+    let tickets = await Ticket.find(query)
       .populate('user', 'name email phoneNumber')
       .populate('event')
       .skip(skip)
       .limit(limit)
       .sort({ createdAt: -1 });
+
+    // Convert dates to Kuwait timezone
+    tickets = tickets.map(ticket => {
+      const ticketObj = ticket.toObject();
+      if (ticketObj.event && ticketObj.event.date) {
+        ticketObj.event.date = moment.utc(ticketObj.event.date)
+          .tz(KUWAIT_TIMEZONE)
+          .format();
+      }
+      if (ticketObj.createdAt) {
+        ticketObj.createdAt = moment.utc(ticketObj.createdAt)
+          .tz(KUWAIT_TIMEZONE)
+          .format();
+      }
+      return ticketObj;
+    });
 
     res.status(200).json({
       tickets,
